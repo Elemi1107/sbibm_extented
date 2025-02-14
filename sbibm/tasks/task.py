@@ -119,7 +119,9 @@ class Task:
             / f"num_observation_{num_observation}"
             / "true_parameters.csv"
         )
-        return get_tensor_from_csv(path)
+        true_params = get_tensor_from_csv(path)
+        print(true_params.shape)
+        return true_params
 
     def save_data(self, path: Union[str, Path], data: torch.Tensor):
         """Save data to a given path"""
@@ -180,15 +182,15 @@ class Task:
             conditioned_model,
             implementation=implementation,
             **kwargs,
-        )
+        ) # get function to calculate log_prob from pyro model
 
         def log_prob_pyro(parameters):
             assert parameters.ndim == 2
 
             num_parameters = parameters.shape[0]
-            if num_parameters == 1:
+            if num_parameters == 1: # single parameter sample
                 return log_prob_fn({"parameters": parameters})
-            else:
+            else: # parameters batch
                 log_probs = []
                 for i in range(num_parameters):
                     log_probs.append(
@@ -330,7 +332,6 @@ class Task:
 
         if num_observation is not None:
             observation = self.get_observation(num_observation=num_observation)
-
         prior = self.get_prior()
         simulator = self.get_simulator()
 

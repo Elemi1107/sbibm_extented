@@ -18,7 +18,7 @@ def run(
     num_simulations: int,
     num_observation: Optional[int] = None,
     observation: Optional[torch.Tensor] = None,
-    num_chains: int = 10,
+    num_chains: int = 1,
     num_warmup: int = 1000,
 ) -> (torch.Tensor, int, Optional[torch.Tensor]):
     """Runs BOLFI from elfi package
@@ -68,12 +68,16 @@ def run(
 
     # Log distance
     elfi.Operation(np.log, m["distance"], name="log_distance")
+    simulator = task.get_simulator(max_calls=num_simulations)
+
+
 
     # Inference
     num_samples_per_chain = ceil(num_samples / num_chains)
     tic = time.time()
     bolfi = elfi.BOLFI(model=m, target_name="log_distance", bounds=bounds)
     bolfi.fit(n_evidence=num_simulations)
+
     result_BOLFI = bolfi.sample(
         num_samples_per_chain + num_warmup,
         warmup=num_warmup,
@@ -89,5 +93,10 @@ def run(
     assert samples.shape[0] == num_samples
 
     # TODO: return log prob of true parameters
+    # get true param
+    true_params = task.get_true_parameters(num_observation=num_observation).numpy().reshape(1, -1)
 
-    return samples, simulator.num_simulations, None
+    bolfi_post = bolfi.extract_posterior()
+    log_prob_true = bolfi_post.logpdf(true_params)
+
+    return samples, simulator.num_simulations, log_prob_true

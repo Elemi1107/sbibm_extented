@@ -44,6 +44,7 @@ def build_prior(task: Task, model: elfi.ElfiModel):
             )
 
     elif "Uniform" in prior_cls:
+        print("using uniform prior")
         prior_params["low"] = task.prior_params["low"].numpy()
         prior_params["high"] = task.prior_params["high"].numpy()
 
@@ -62,6 +63,30 @@ def build_prior(task: Task, model: elfi.ElfiModel):
             bounds[f"parameter_{dim}"] = (
                 prior_params["low"][dim],
                 prior_params["high"][dim],
+            )
+
+    elif "LogNormal" in prior_cls:
+        prior_params["loc"] = task.prior_params["loc"].numpy()
+        prior_params["scale"] = task.prior_params["scale"].numpy()
+        # 转换时注意，lognormal在pyro和scipy（elfi依赖）的定义不同
+
+        for dim in range(task.dim_parameters):
+            # loc = prior_params["loc"][dim]
+            # scale = prior_params["scale"][dim]
+            mu = prior_params["loc"][dim]
+            sigma = max(prior_params["scale"][dim], 1e-6)  # 确保 sigma > 0
+
+            elfi.Prior(
+                "lognorm",
+                sigma, # s = σ
+                np.exp(mu),  # scale = exp(μ)
+                model=model,
+                name=f"parameter_{dim}",
+            )
+
+            bounds[f"parameter_{dim}"] = (
+                np.exp(mu - 3.0 * sigma),
+                np.exp(mu + 3.0 * sigma),
             )
 
     else:

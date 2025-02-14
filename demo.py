@@ -1,7 +1,7 @@
 import sbibm
 
-task = sbibm.get_task("svar",num_observations=1)
-# task = sbibm.get_task("bernoulli_glm")  # See sbibm.get_available_tasks() for all tasks
+# task = sbibm.get_task("svar",num_observations=1)
+task = sbibm.get_task("bernoulli_glm")  # See sbibm.get_available_tasks() for all tasks
 # task = sbibm.get_task("sir",summary="subsample")
 # prior = task.get_prior()
 # simulator = task.get_simulator()
@@ -14,9 +14,9 @@ task = sbibm.get_task("svar",num_observations=1)
 
 # Alternatively, we can import existing algorithms, e.g:
 from sbibm.algorithms import bolfi # See help(rej_abc) for keywords
-# posterior_samples, _, _ = bolfi(task=task, num_samples=100, num_observation=1, num_simulations=100)
+posterior_samples, _, _ = bolfi(task=task, num_samples=100, num_observation=1, num_simulations=1500)
 from sbibm.algorithms import pyvbmc
-posterior_samples, _, _ = pyvbmc(task=task, num_samples=100, num_observation=1)
+# posterior_samples, _, _ = pyvbmc(task=task, num_samples=100, num_observation=1)
 
 # Once we got samples from an approximate posterior, compare them to the reference:
 from sbibm.metrics import c2st

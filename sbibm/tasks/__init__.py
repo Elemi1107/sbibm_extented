@@ -64,7 +64,7 @@ def get_task(task_name: str, *args: Any, **kwargs: Any) -> Task:
         return TwoMoons(*args, **kwargs)
 
     elif task_name == "svar":
-        from sbibm.tasks.svar._task import SVAR
+        from sbibm.tasks.svar.task import SVAR
 
         return SVAR(*args, **kwargs)
 

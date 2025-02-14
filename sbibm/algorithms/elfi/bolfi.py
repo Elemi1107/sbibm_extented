@@ -71,11 +71,10 @@ def run(
     simulator = task.get_simulator(max_calls=num_simulations)
 
 
-
     # Inference
     num_samples_per_chain = ceil(num_samples / num_chains)
     tic = time.time()
-    bolfi = elfi.BOLFI(model=m, target_name="log_distance", bounds=bounds)
+    bolfi = elfi.BOLFI(model=m, target_name="log_distance", batch_size=10, bounds=bounds)
     bolfi.fit(n_evidence=num_simulations)
 
     result_BOLFI = bolfi.sample(
@@ -98,5 +97,8 @@ def run(
 
     bolfi_post = bolfi.extract_posterior()
     log_prob_true = bolfi_post.logpdf(true_params)
+    print(f"true params: {true_params}")
+    print(f"bolfi posterior mean: {np.mean(samples.numpy(), axis=0)}")
+    print(f"prob true params bolfi: {np.exp(log_prob_true)}")
 
     return samples, simulator.num_simulations, log_prob_true

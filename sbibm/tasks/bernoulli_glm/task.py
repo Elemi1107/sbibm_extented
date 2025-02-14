@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Any
 
 import numpy as np
 import pyro
@@ -45,6 +45,8 @@ class BernoulliGLM(Task):
             "duration": 100,  # duration of input stimulus
             "seed": 42,  # seperate seed to freeze noise on input current
         }
+        self.design_matrix = torch.load(self.path / "files" / "design_matrix.pt")
+
 
         # Prior on offset and filter
         # Smoothness in filter encouraged by penalyzing 2nd order differences
@@ -274,6 +276,38 @@ class BernoulliGLM(Task):
             self._save_reference_posterior_samples(
                 num_observation, reference_posterior_samples
             )
+
+    def _get_log_prob_fn(
+        self,
+        num_observation: Optional[int] = None,
+        observation: Optional[torch.Tensor] = None,
+        posterior: bool = True,
+        implementation: str = "pyro",
+        **kwargs: Any,
+    ) -> Callable:
+        """Gets function returning the unnormalized log posterior probability."""
+        assert not (num_observation is None and observation is None), "Must specify either num_observation or observation."
+
+        if num_observation is not None:
+            self.raw = True # use raw data to calculate log density
+            observation = self.get_observation(num_observation)
+            self.raw = False
+
+        def log_likelihood(theta: torch.Tensor) -> float:
+            psi = torch.matmul(self.design_matrix, theta.T).squeeze()
+            z = torch.sigmoid(psi)
+            log_lik = torch.sum(observation * torch.log(z + 1e-9) + (1 - observation) * torch.log(1 - z + 1e-9))
+            return log_lik.item()
+
+        def log_prior(theta: torch.Tensor) -> float:
+            return self.prior_dist.log_prob(theta).item()
+
+        def log_prob_fn(theta: torch.Tensor) -> torch.Tensor:
+            """Compute unnormalized log posterior log p(theta | x)."""
+            log_probs = torch.tensor([log_likelihood(t) + log_prior(t) for t in theta], dtype=torch.float32)
+            return log_probs
+
+        return log_prob_fn
 
 
 if __name__ == "__main__":

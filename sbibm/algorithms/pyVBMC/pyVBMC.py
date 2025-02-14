@@ -104,7 +104,6 @@ def run(
     log_prob_true_pyvbmc = vp.log_pdf(true_params)
     print(f"true params: {true_params}")
     print(f"pyvbmc posterior mean: {np.mean(posterior_samples,axis=0)}")
-    print(f"prob true params pyvbmc: {np.exp(log_prob_true_pyvbmc)}")
 
 
     if task.name == 'svar':

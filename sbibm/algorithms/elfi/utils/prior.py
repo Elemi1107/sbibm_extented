@@ -2,6 +2,7 @@ import logging
 
 import elfi
 import numpy as np
+import scipy.stats
 
 from sbibm.tasks.task import Task
 
@@ -79,15 +80,19 @@ def build_prior(task: Task, model: elfi.ElfiModel):
             elfi.Prior(
                 "lognorm",
                 sigma, # s = σ
+                0, # loc = 0
                 np.exp(mu),  # scale = exp(μ)
                 model=model,
                 name=f"parameter_{dim}",
             )
 
+
             bounds[f"parameter_{dim}"] = (
                 np.exp(mu - 3.0 * sigma),
-                np.exp(mu + 3.0 * sigma),
+                np.exp(mu + 3.0 * sigma)
             )
+
+        print(bounds)
 
     else:
         log.info("No support for prior yet")

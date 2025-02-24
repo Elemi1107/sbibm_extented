@@ -74,6 +74,10 @@ def run(
         else None
     )
 
+    print("parameters.shape:", parameters.shape)
+    if parameters.ndim == 1:
+        parameters = parameters.unsqueeze(0)
+
     pbar = tqdm(range(num_batches_without_new_max))
     num_batches_cnt = 0
     while num_batches_cnt <= num_batches_without_new_max:
@@ -83,13 +87,19 @@ def run(
         log_prob_likelihood_batch = log_prob_fn(parameters)
         log_prob_proposal_batch = proposal_dist.log_prob(parameters)
         log_prob_ratio_max = (log_prob_likelihood_batch - log_prob_proposal_batch).max()
-
+        print(f"log_prob_likelihood_batch shape: {log_prob_likelihood_batch.shape}")
+        print(f"log_prob_proposal_batch shape: {log_prob_proposal_batch.shape}")
+        print(f"log_prob_likelihood_batch: {log_prob_likelihood_batch}")
+        print(f"log_prob_proposal_batch: {log_prob_proposal_batch}")
+        print(f"log_prob_ration_max: {log_prob_ratio_max}")
         if log_prob_ratio_max > log_M:
+            print(f'log_prob_ratio_max > log_M')
             log_M = log_prob_ratio_max + math.log(multiplier_M)
             num_batches_cnt = 0
             pbar.reset()
             pbar.set_postfix_str(s=f"log(M): {log_M:.3f}", refresh=True)
         else:
+            print(f"num_batches_cnt: {num_batches_cnt}")
             num_batches_cnt += 1
             pbar.update()
 

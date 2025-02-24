@@ -126,15 +126,27 @@ def get_log_prob_fn(
             replayed_model = pyro.poutine.replay(model, model_trace)
 
             log_p = 0
+
             for trace_enum in iter_discrete_traces("flat", fn=replayed_model):
                 trace_enum.compute_log_prob()
-
                 for node_name, node in trace_enum.nodes.items():
                     if node_name in excluded_nodes:
                         continue
+                    print(f"{node_name}: log_prob shape = {node['log_prob'].shape}")
+                    print(node["log_prob"])
 
+                for node_name, node in trace_enum.nodes.items():
+
+                    if node_name in excluded_nodes:
+                        continue
+                    # print(f"{node_name}: log_prob shape = {node['log_prob'].shape}")
+                    # print(node["log_prob"])
+
+                    # if node["log_prob"].ndim == 0:  # torch.Size([])
+                    #     log_p += node["log_prob"]
                     if node["log_prob"].ndim == 1:
-                        log_p += trace_enum.nodes[node_name]["log_prob"]
+                        # log_p += trace_enum.nodes[node_name]["log_prob"]
+                        log_p += trace_enum.nodes[node_name]["log_prob"] # sum over elements of y0
                     else:
                         log_p += trace_enum.nodes[node_name]["log_prob"].sum(dim=1)
 

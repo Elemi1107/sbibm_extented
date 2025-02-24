@@ -18,7 +18,7 @@ def run(
     num_simulations: int,
     num_observation: Optional[int] = None,
     observation: Optional[torch.Tensor] = None,
-    num_chains: int = 1,
+    num_chains: int = 5,
     num_warmup: int = 1000,
 ) -> (torch.Tensor, int, Optional[torch.Tensor]):
     """Runs BOLFI from elfi package
@@ -68,13 +68,21 @@ def run(
 
     # Log distance
     elfi.Operation(np.log, m["distance"], name="log_distance")
-    simulator = task.get_simulator(max_calls=num_simulations)
+    # simulator = task.get_simulator(max_calls=num_simulations)
 
 
     # Inference
     num_samples_per_chain = ceil(num_samples / num_chains)
     tic = time.time()
-    bolfi = elfi.BOLFI(model=m, target_name="log_distance", batch_size=10, bounds=bounds)
+    bolfi = elfi.BOLFI(
+        model=m,
+        target_name="log_distance",
+        batch_size=10,
+        bounds=bounds,
+        # exploration_rate=0.1,
+        # update_interval=50,
+    )
+    # n_evidence must be larger than initial_evidence(2**dim_params+1 by default)
     bolfi.fit(n_evidence=num_simulations)
 
     result_BOLFI = bolfi.sample(
@@ -82,6 +90,7 @@ def run(
         warmup=num_warmup,
         n_chains=num_chains,
         info_freq=int(100),
+        # algorithm="metropolis"
     )
     toc = time.time()
 

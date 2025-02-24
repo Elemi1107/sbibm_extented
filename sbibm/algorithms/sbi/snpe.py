@@ -26,7 +26,7 @@ def run(
     simulation_batch_size: int = 1000,
     training_batch_size: int = 10000,
     num_atoms: int = 10,
-    automatic_transforms_enabled: bool = False,
+    automatic_transforms_enabled: bool = True,
     z_score_x: str = "independent",
     z_score_theta: str = "independent",
     max_num_epochs: Optional[int] = 2**31 - 1,

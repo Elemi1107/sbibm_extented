@@ -1,3 +1,4 @@
+import os
 import random
 
 import pandas as pd
@@ -11,7 +12,7 @@ import pyro
 from pyro import distributions as pdist
 
 from sbibm.tasks.simulator import Simulator
-from sbibm.tasks.task import Task
+from sbibm.tasks import Task
 from sbibm.utils.io import get_tensor_from_csv
 
 
@@ -32,7 +33,7 @@ class SVAR(Task):
         # self.pairs = self._load_pairs(num_observations)
         self.pairs = None # load dynamically
 
-        observation_seeds = [1000000 + i for i in range(10)]  # Fixed observation seeds
+        observation_seeds = [1000018 + i*4 for i in range(10)]  # Fixed observation seeds
 
         super().__init__(
             dim_data=dim_data,
@@ -40,7 +41,7 @@ class SVAR(Task):
             name="svar",
             num_observations=num_observations,
             num_posterior_samples=10000,
-            num_reference_posterior_samples=10000,
+            num_reference_posterior_samples=1000,
             num_simulations=[1000, 10000, 100000, 1000000],
             path=Path(__file__).parent.absolute(),
             observation_seeds=observation_seeds,
@@ -76,7 +77,7 @@ class SVAR(Task):
         """Set `k` dynamically based on `num_observation`."""
         self.k = self.k_list[num_observation - 1]
         # self.dim_data = self.k + 1 # only used when generating obs
-        self.dim_parameters = self.k + 1
+        self.dim_parameter = self.k + 1
 
     def set_raw(self,israw: bool):
         if israw:
@@ -98,6 +99,7 @@ class SVAR(Task):
             pdist.Uniform(self.prior_params["low"], self.prior_params["high"]),
             reinterpreted_batch_ndims=1
         )
+        self.prior_dist.set_default_validate_args(False)
 
         def prior(num_samples=1):
             return pyro.sample("parameters", self.prior_dist.expand_by([num_samples]))
@@ -111,12 +113,16 @@ class SVAR(Task):
             num_samples = parameters.shape[0]
             summaries = torch.zeros((num_samples, self.dim_parameters), dtype=torch.float32)
             raw_data = torch.zeros((num_samples, self.k, self.T), dtype=torch.float32)
-
+            raw_data_list = []
             for i in range(num_samples):
                 summary, raw = self.simulate_SVAR(parameters[i])
                 summaries[i] = summary
-                raw_data[i] = raw
+                # raw_data[i] = raw
+                raw_data_list.append(raw.reshape(1,-1))
 
+
+            raw_data = torch.cat(raw_data_list, dim=0)
+            print(raw_data.shape)
             if not return_both:
                 if not self.raw:
                     print("generating stats")
@@ -125,6 +131,9 @@ class SVAR(Task):
                     print("generating raw data")
                     # return raw_data.reshape(num_samples,-1) # flatten raw data (num_samples, k*T)
                     return raw_data
+                    # torch.autograd.set_detect_anomaly(True)
+                    # data = pyro.sample("data", pdist.Normal(raw_data, 0.01).to_event(1))
+                    # return data
             else:
                 return summaries, raw_data.reshape(num_samples,-1)
 
@@ -132,6 +141,41 @@ class SVAR(Task):
         return Simulator(task=self, simulator=simulator, max_calls=max_calls)
 
 
+
+    # def simulate_SVAR(self, theta):
+    #     """Simulates SVAR data and computes summary statistics."""
+    #     if self.pairs is None:
+    #         self.pairs = self._load_pairs(self.num_observations)
+    #
+    #     X = -0.1 * torch.eye(self.k)
+    #
+    #     matrix_params = theta[:-1]
+    #     # Set off-diagonal elements based on parameter locations
+    #     for (i,j), value in zip(self.pairs,matrix_params):
+    #         X[i,j] = value
+    #
+    #
+    #     sigma = theta[-1]
+    #     # Y = torch.zeros(self.k, self.T)
+    #     # Y[:, 0] = torch.normal(0.0, sigma.item(), size=(self.k,))
+    #
+    #     # for t in range(1, self.T):
+    #     #     Y[:, t] = torch.matmul(X, Y[:, t - 1]) + torch.normal(0.0, sigma.item(), size=(self.k,))
+    #
+    #     # remove in-place operations
+    #     Y_list = [torch.normal(0.0, sigma.clone().detach(), size=(self.k,)).unsqueeze(1)]  # shape: (self.k, 1)
+    #
+    #     for t in range(1, self.T):
+    #         Y_next = (torch.matmul(X, Y_list[-1]) +
+    #                   torch.normal(0.0, sigma.clone().detach(), size=(self.k, 1)))
+    #
+    #         Y_list.append(Y_next)
+    #
+    #
+    #     Y = torch.cat(Y_list, dim=1)  # shape: (self.k, self.T)
+    #
+    #     summary_stats = self.compute_summary(Y)
+    #     return summary_stats, Y
 
     def simulate_SVAR(self, theta):
         """Simulates SVAR data and computes summary statistics."""
@@ -147,14 +191,31 @@ class SVAR(Task):
 
 
         sigma = theta[-1]
-        Y = torch.zeros(self.k, self.T)
-        Y[:, 0] = torch.normal(0.0, sigma, size=(self.k,))
+        Sigma = sigma * torch.eye(self.k)
 
+        # theta
+        X = -0.1 * torch.eye(self.k)
+        matrix_params = theta[:-1]
+        for (i, j), value in zip(self.pairs, matrix_params):
+            X[i, j] = value
+        sigma = theta[-1]
+        Sigma = torch.diag(sigma * torch.ones(self.k))
+
+        # y
+        y = torch.zeros(self.k, self.T)
+        y[:, 0] = pyro.sample("Y_0", pdist.Normal(torch.zeros(self.k), torch.ones(self.k)))
+
+        # y_t
         for t in range(1, self.T):
-            Y[:, t] = torch.matmul(X, Y[:, t - 1]) + torch.normal(0.0, sigma, size=(self.k,))
+            mean = torch.matmul(X, y[:, t - 1])
+            # mean = torch.clamp(mean, -10.0, 10.0)
+            # y[:, t] = pyro.sample(f"Y_{t}", pdist.MultivariateNormal(mean, Sigma),
+            #                       obs=observation[:, t] if observation is not None else None)
+            yt = pyro.sample(f"Y_{t}", pdist.MultivariateNormal(mean, Sigma))
+            y = torch.cat((y[:, :t], yt.unsqueeze(1), y[:, t + 1:]), dim=1)
 
-        summary_stats = self.compute_summary(Y)
-        return summary_stats, Y
+        summary_stats = self.compute_summary(y)
+        return summary_stats, y
 
     def compute_summary(self, Y):
         """Computes summary statistics (autocovariance and standard deviation)."""
@@ -166,22 +227,51 @@ class SVAR(Task):
         S[-1] = torch.std(Y)
         return S
 
+
+    def _get_pyro_model(
+            self,
+            posterior: bool = True,
+            num_observation: Optional[int] = None,
+            observation: Optional[torch.Tensor] = None,
+    ) -> Callable:
+        """Pyro-compatible generative model."""
+        if num_observation is not None:
+            observation = self.get_observation(num_observation=num_observation)
+        torch.autograd.set_detect_anomaly(True)
+
+        if self.pairs is None:
+            self.pairs = self._load_pairs(self.num_observations)
+
+        prior = self.get_prior()
+        simulator = self.get_simulator()
+
+        def model_fn():
+            prior_ = pyro.poutine.mask(prior, torch.tensor(posterior))
+            return simulator(prior_())
+
+        if observation is not None and self.raw:
+            return pyro.condition(model_fn, data={"Y_0": observation[:, 0],
+                                                  **{f"Y_{t}": observation[:, t] for t in range(1, self.T)}})
+        else:
+            return model_fn
+        # return model_fn
+
     def flatten_data(self, data: torch.Tensor) -> torch.Tensor:
         """Flattens data
 
         Data returned by the simulator is always flattened into 2D Tensors
         """
         if type(data) == tuple:
-            return data
+            return data # generating obs, return (obs,obs_raw)
         else :
             return data.reshape(-1, self.dim_data)
 
-    # def unflatten_data(self, data: torch.Tensor) -> torch.Tensor:
-    #     if self.raw:
-    #         print("SVAR unflatten: keeping shape", data.shape)
-    #         return data  # obs (k,T)
-    #     else:
-    #         return data.reshape(-1, self.dim_data)
+    def unflatten_data(self, data: torch.Tensor) -> torch.Tensor:
+        if self.raw:
+            print("SVAR unflatten: keeping shape", data.shape)
+            return data  # obs (k,T)
+        else:
+            return data.reshape(-1, self.dim_data)
 
     def get_observation(self, num_observation: int) -> torch.Tensor:
         """Get observed data for a given observation number"""
@@ -195,43 +285,92 @@ class SVAR(Task):
         return data
 
     def _sample_reference_posterior(
-            self, num_samples: int, num_observation: Optional[int] = None, observation: Optional[torch.Tensor] = None
+            self,
+            num_samples: int,
+            num_observation: Optional[int] = None,
+            observation: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Uses PyMC to sample from the reference posterior using summary statistics."""
+        """Sample reference posterior for given observation using MCMC and rejection sampling.
+
+        Args:
+            num_observation: Observation number
+            num_samples: Number of samples to generate
+            observation: Observed data, if None, will be loaded using `num_observation`
+
+        Returns:
+            Samples from reference posterior
+        """
+        from sbibm.algorithms.pyro.mcmc import run as run_mcmc
+        from sbibm.algorithms.pytorch.baseline_rejection import run as run_rejection
+        from sbibm.algorithms.pytorch.utils.proposal import get_proposal
+
+
         if num_observation is not None:
-            self.raw = True
-            observation_raw = self.get_observation(num_observation)
-            self.raw = False
+            initial_params = self.get_true_parameters(num_observation=num_observation)
+        else:
+            initial_params = None
 
-        k = self.k
-        pairs = self.pairs if self.pairs is not None else self._load_pairs(num_observation)  # 获取当前 observation 的非零参数位置
-        Y = observation_raw.numpy()
-        k, T = Y.shape
-
-        with pm.Model() as model:
-            theta = pm.Uniform("theta",
-                               lower=self.prior_params["low"].numpy(),
-                               upper=self.prior_params["high"].numpy(),
-                               shape=(self.dim_parameters,))
-            matrix_params = theta[:-1]
-            sigma = theta[-1]
-
-            # 在 PyMC 里构造 X
-            X = -0.1 * np.eye(k)
-            for (i, j), value in zip(pairs, matrix_params):
-                X[i, j] = value # todo: 怎么构造X
-
-            Y_pred = pm.math.dot(Y[:, :-1].T, X.T) # X*y_{t-1}
-
-            # Likelihood?
-            pm.Normal("y_obs", mu=Y_pred, sigma=sigma, observed=Y[:,1:].T)
-            # todo: 从true params开始采样
-            trace = pm.sample(draws=num_samples, tune=1000, chains=2, return_inferencedata=True)
+        proposal_path = self.path / f"files/num_observation_{num_observation}/proposal_samples.pt"
+        proposal_dist_path = self.path / f"files/num_observation_{num_observation}/proposal_dist.pt"
 
 
-        posterior_samples = az.extract(trace, var_names=["theta"]).values
-        return torch.tensor(posterior_samples, dtype=torch.float32)
 
+        if os.path.exists(proposal_path):
+            print(f"Loading proposal_samples from {proposal_path}")
+            proposal_samples = torch.load(proposal_path)
+        else:
+            print("Running MCMC to generate proposal_samples...")
+
+            # Step 1: Use MCMC to get a proposal distribution
+            proposal_samples = run_mcmc(
+                task=self,
+                kernel="Slice",  # Slice sampling for efficient exploration
+                jit_compile=False,
+                num_warmup=2000,
+                num_chains=1,
+                num_observation=num_observation,
+                observation=observation,
+                num_samples=num_samples,
+                initial_params=initial_params,
+                automatic_transforms_enabled=True,
+            )
+
+            print(f"Saving proposal_samples to {proposal_path}")
+            os.makedirs(os.path.dirname(proposal_path), exist_ok=True)
+            torch.save(proposal_samples, proposal_path)
+
+        # # Step 2: Fit a normalizing flow to the MCMC samples
+        # if os.path.exists(proposal_dist_path):
+        #     print(f"Loading proposal_dist from {proposal_dist_path}")
+        #     proposal_dist = torch.load(proposal_dist_path)
+        # else:
+        #     print("Generating proposal_dist from proposal_samples...")
+        #     proposal_dist = get_proposal(
+        #         task=self,
+        #         samples=proposal_samples,
+        #         prior_weight=0.1,
+        #         bounded=True,
+        #         density_estimator="flow",
+        #         flow_model="nsf",
+        #     )
+        #
+        #     print(f"Saving proposal_dist to {proposal_dist_path}")
+        #     os.makedirs(os.path.dirname(proposal_dist_path), exist_ok=True)
+        #     torch.save(proposal_dist, proposal_dist_path)
+
+        # Step 3: Use rejection sampling to get high-quality posterior samples
+        # samples = run_rejection(
+        #     task=self,
+        #     num_observation=num_observation,
+        #     observation=observation,
+        #     num_samples=num_samples,
+        #     batch_size=10_000,  # Process in batches
+        #     num_batches_without_new_max=1_000,  # Early stopping if no improvement
+        #     multiplier_M=1.2,  # Scaling factor for rejection sampling
+        #     proposal_dist=proposal_dist,
+        # )
+
+        return proposal_samples
 
     def _generate_sparse_pairs(self, k):
         """
@@ -240,7 +379,6 @@ class SVAR(Task):
         """
         upper_pairs = [(i, j) for i in range(k) for j in range(i + 1, k)]
         random.shuffle(upper_pairs)
-        print(k)
         selected_pairs = upper_pairs[:k // 2]
 
         selected_pairs = selected_pairs + [(j,i) for (i,j) in selected_pairs]
@@ -275,7 +413,6 @@ class SVAR(Task):
         path = self.path / f"files/num_observation_{num_observation}/true_parameters.csv"
         df = pd.read_csv(path)
         params = torch.tensor(df["parameter"].values, dtype=torch.float32)
-        print(f"Loaded true parameters for observation {num_observation}: {params.shape}")  # Debug 确认 shape
         return params
 
     def _setup(self,  create_reference: bool = True, **kwargs: Any):
@@ -287,20 +424,29 @@ class SVAR(Task):
 
             print(f"Running setup for observation {num_observation} (seed={observation_seed})")
 
-            self._save_observation_seed(num_observation, observation_seed)
+            # self._save_observation_seed(num_observation, observation_seed)
+            # self.k = self.k_list[num_observation - 1]
+            # self.pairs = self._generate_sparse_pairs(self.k)  # FIXED pairs per observation
+            # self.num_observations = num_observation
+            # self.dim_parameters = self.k + 1
+            #
+            # prior = self.get_prior()
+            # true_parameters = prior(num_samples=1)
+            # self._save_true_parameters(num_observation, true_parameters.flatten(), self.pairs)
+            #
+            # simulator = self.get_simulator()
+            # observation, observation_raw = simulator(true_parameters, return_both=True)
+            # print(observation)
+            # self._save_observation(num_observation, observation)
+            # self._save_observation_raw(num_observation, observation_raw)
+
+
             self.k = self.k_list[num_observation - 1]
-            self.pairs = self._generate_sparse_pairs(self.k)  # FIXED pairs per observation
+            self.pairs = self._load_pairs(num_observation)
             self.num_observations = num_observation
 
-            prior = self.get_prior()
-            true_parameters = prior(num_samples=1)
-            self._save_true_parameters(num_observation, true_parameters.flatten(), self.pairs)
 
-            simulator = self.get_simulator()
-            observation, observation_raw = simulator(true_parameters, return_both=True)
-            print(observation)
-            self._save_observation(num_observation, observation)
-            self._save_observation_raw(num_observation, observation_raw)
+            self.set_raw(True)
 
 
             if create_reference:
@@ -314,4 +460,4 @@ class SVAR(Task):
 
 if __name__ == "__main__":
     task = SVAR()
-    task._setup(create_reference=False)
+    task._setup(create_reference=True)

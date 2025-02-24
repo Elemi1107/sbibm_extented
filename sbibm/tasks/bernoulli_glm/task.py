@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Any
 
@@ -90,6 +91,8 @@ class BernoulliGLM(Task):
 
             If `return_both` is True, will additionally return spike train not reduced to summary features
             """
+            # start_time = time.time()
+            # print(f"Simulator running for parameters: {parameters}")
 
             data = []
             data_raw = []
@@ -111,8 +114,13 @@ class BernoulliGLM(Task):
 
             if not return_both:
                 if not self.raw:
+                    print('generating bernoulli-glm stats')
+                    # end_time = time.time()
+                    # print(f"Simulator execution time: {end_time - start_time} seconds")
                     return torch.stack(data)
                 else:
+                    # end_time = time.time()
+                    # print(f"Simulator execution time: {end_time - start_time} seconds")
                     return torch.stack(data_raw)
             else:
                 return torch.stack(data), torch.stack(data_raw)

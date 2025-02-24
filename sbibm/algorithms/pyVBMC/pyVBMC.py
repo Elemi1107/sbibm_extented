@@ -11,6 +11,7 @@ def run(
     num_samples: int,
     num_observation: Optional[int] = None,
     observation: Optional[torch.Tensor] = None,
+    num_simulations: Optional[int] = None
 ) -> (torch.Tensor, int, Optional[torch.Tensor]):
     """Runs PyVBMC to perform variational Bayesian inference.
 

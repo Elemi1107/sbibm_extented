@@ -1,7 +1,8 @@
 import math
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Any
 
+import numpy as np
 import pyro
 import torch
 from diffeqtorch import DiffEq
@@ -251,6 +252,45 @@ class SIR(Task):
 
         return samples
 
+    def _setup(self,  create_reference: bool = True, **kwargs: Any):
+        """Setup the task: generate observations and reference posterior samples"""
+
+        for num_observation, observation_seed in enumerate(self.observation_seeds, start=1):
+            np.random.seed(observation_seed)
+            torch.manual_seed(observation_seed)
+
+            print(f"Running setup for observation {num_observation} (seed={observation_seed})")
+
+            # self._save_observation_seed(num_observation, observation_seed)
+            # self.k = self.k_list[num_observation - 1]
+            # self.pairs = self._generate_sparse_pairs(self.k)  # FIXED pairs per observation
+            # self.num_observations = num_observation
+            #
+            # prior = self.get_prior()
+            # true_parameters = prior(num_samples=1)
+            # self._save_true_parameters(num_observation, true_parameters.flatten(), self.pairs)
+            #
+            # simulator = self.get_simulator()
+            # observation, observation_raw = simulator(true_parameters, return_both=True)
+            # print(observation)
+            # self._save_observation(num_observation, observation)
+            # self._save_observation_raw(num_observation, observation_raw)
+
+
+
+            self.num_observations = num_observation
+
+
+            # self.set_raw(True)
+
+
+            if create_reference:
+                reference_posterior_samples = self._sample_reference_posterior(
+                    num_observation=num_observation,
+                    num_samples=self.num_reference_posterior_samples,
+                    **kwargs,
+                )
+                self._save_reference_posterior_samples(num_observation, reference_posterior_samples)
 
 if __name__ == "__main__":
     task = SIR()

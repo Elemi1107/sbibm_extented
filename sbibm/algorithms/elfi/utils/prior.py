@@ -3,8 +3,12 @@ import logging
 import elfi
 import numpy as np
 import scipy.stats
+from scipy.stats import uniform, rv_continuous
 
 from sbibm.tasks.task import Task
+from torch.distributions import Uniform, TransformedDistribution
+from torch.distributions.transforms import SigmoidTransform,TanhTransform
+
 
 
 def build_prior(task: Task, model: elfi.ElfiModel):
@@ -45,7 +49,6 @@ def build_prior(task: Task, model: elfi.ElfiModel):
             )
 
     elif "Uniform" in prior_cls:
-        print("using uniform prior")
         prior_params["low"] = task.prior_params["low"].numpy()
         prior_params["high"] = task.prior_params["high"].numpy()
 
@@ -66,16 +69,18 @@ def build_prior(task: Task, model: elfi.ElfiModel):
                 prior_params["high"][dim],
             )
 
+        if task.name == "svar":
+            bounds[f"parameter_{task.dim_parameters-1}"] = (1e-6, 1) # avoid 0 variance
+
     elif "LogNormal" in prior_cls:
         prior_params["loc"] = task.prior_params["loc"].numpy()
         prior_params["scale"] = task.prior_params["scale"].numpy()
-        # 转换时注意，lognormal在pyro和scipy（elfi依赖）的定义不同
 
         for dim in range(task.dim_parameters):
             # loc = prior_params["loc"][dim]
             # scale = prior_params["scale"][dim]
             mu = prior_params["loc"][dim]
-            sigma = max(prior_params["scale"][dim], 1e-6)  # 确保 sigma > 0
+            sigma = max(prior_params["scale"][dim], 1e-6)
 
             elfi.Prior(
                 "lognorm",

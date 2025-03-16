@@ -12,6 +12,7 @@ class Simulator:
         task: Task,
         simulator: Callable,
         max_calls: Optional[int] = None,
+
     ):
         """Simulator
 

@@ -114,7 +114,7 @@ class BernoulliGLM(Task):
 
             if not return_both:
                 if not self.raw:
-                    print('generating bernoulli-glm stats')
+                    # print('generating bernoulli-glm stats')
                     # end_time = time.time()
                     # print(f"Simulator execution time: {end_time - start_time} seconds")
                     return torch.stack(data)

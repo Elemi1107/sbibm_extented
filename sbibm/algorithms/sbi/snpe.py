@@ -2,6 +2,7 @@ import logging
 import math
 from typing import Optional, Tuple
 
+import numpy as np
 import torch
 from sbi import inference as inference
 from sbi.utils.get_nn_models import posterior_nn
@@ -96,13 +97,22 @@ def run(
     posteriors = []
     proposal = prior
 
-    for _ in range(num_rounds):
+    for i in range(num_rounds):
         theta, x = inference.simulate_for_sbi(
             simulator,
             proposal,
             num_simulations=num_simulations_per_round,
             simulation_batch_size=simulation_batch_size,
         )
+
+        if task.name == "svar":
+            clip_val = 8
+
+            clip_idx = (torch.abs(x) > clip_val).any(dim=1)  # clip data with summary stats > clip_val(~3%)
+            print(f"Percentage removed: {clip_idx.float().mean().item():.4f}")
+            x = x[~clip_idx]
+            theta = theta[~clip_idx]
+
 
         density_estimator = inference_method.append_simulations(
             theta, x, proposal=proposal

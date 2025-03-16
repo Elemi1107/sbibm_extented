@@ -18,7 +18,7 @@ def run(
     num_simulations: int,
     num_observation: Optional[int] = None,
     observation: Optional[torch.Tensor] = None,
-    num_chains: int = 5,
+    num_chains: int = 1,
     num_warmup: int = 1000,
 ) -> (torch.Tensor, int, Optional[torch.Tensor]):
     """Runs BOLFI from elfi package
@@ -38,7 +38,7 @@ def run(
     assert not (num_observation is None and observation is None)
     assert not (num_observation is not None and observation is not None)
 
-    logging.basicConfig(level=logging.INFO)
+    # logging.basicConfig(level=logging.DEBUG)
 
     log = logging.getLogger(__name__)
     log.warn("ELFI is not fully supported yet!")
@@ -56,6 +56,7 @@ def run(
 
     # Simulator
     simulator = task.get_simulator(max_calls=num_simulations)
+
     elfi.Simulator(
         Simulator(simulator),
         *[m[f"parameter_{dim}"] for dim in range(task.dim_parameters)],
@@ -68,29 +69,28 @@ def run(
 
     # Log distance
     elfi.Operation(np.log, m["distance"], name="log_distance")
-    # simulator = task.get_simulator(max_calls=num_simulations)
 
 
     # Inference
     num_samples_per_chain = ceil(num_samples / num_chains)
     tic = time.time()
     bolfi = elfi.BOLFI(
+        initial_evidence=10,
         model=m,
         target_name="log_distance",
-        batch_size=10,
         bounds=bounds,
-        # exploration_rate=0.1,
+        # exploration_rate=1.0,
         # update_interval=50,
     )
-    # n_evidence must be larger than initial_evidence(2**dim_params+1 by default)
+
     bolfi.fit(n_evidence=num_simulations)
 
     result_BOLFI = bolfi.sample(
         num_samples_per_chain + num_warmup,
         warmup=num_warmup,
         n_chains=num_chains,
-        info_freq=int(100),
-        # algorithm="metropolis"
+        # info_freq=int(100),
+        algorithm="metropolis" # NUTS sampling fails on svar
     )
     toc = time.time()
 
@@ -98,16 +98,13 @@ def run(
         -1, task.dim_parameters
     )[:num_samples, :]
 
-    assert samples.shape[0] == num_samples
 
-    # TODO: return log prob of true parameters
-    # get true param
-    true_params = task.get_true_parameters(num_observation=num_observation).numpy().reshape(1, -1)
+    # true_params = task.get_true_parameters(num_observation=num_observation).numpy().reshape(1, -1)
+    #
+    # bolfi_post = bolfi.extract_posterior()
+    # log_prob_true = bolfi_post.logpdf(true_params)
+    # print(f"true params: {true_params}")
+    # print(f"bolfi posterior mean: {np.mean(samples.numpy(), axis=0)}")
+    # print(f"prob true params bolfi: {np.exp(log_prob_true)}")
 
-    bolfi_post = bolfi.extract_posterior()
-    log_prob_true = bolfi_post.logpdf(true_params)
-    print(f"true params: {true_params}")
-    print(f"bolfi posterior mean: {np.mean(samples.numpy(), axis=0)}")
-    print(f"prob true params bolfi: {np.exp(log_prob_true)}")
-
-    return samples, simulator.num_simulations, log_prob_true
+    return samples, simulator.num_simulations, None
